@@ -19,6 +19,14 @@ class Padding:
         return ImageOps.expand(img, border=self.pad, fill=0)
 
 
+class PadToSize:
+    def __init__(self, size):
+        self.size = size
+
+    def __call__(self, img_list, color=None):
+        return [ImageOps.pad(img, self.size, color=color) for img in img_list]
+
+
 class Scale:
     def __init__(self, size, interpolation=Image.NEAREST):
         assert isinstance(size, int) or (isinstance(size, collections.Iterable) and len(size) == 2)

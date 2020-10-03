@@ -34,7 +34,7 @@ def get_modality_list(modalities):
 def get_modality_restore_ckpts(args):
     ckpts = {}
     for m in mu.ModeList:
-        ckpt = getattr(args, m + "_restore_ckpt")
+        ckpt = getattr(args, m.split('-')[0] + "_restore_ckpt")
         ckpts[m] = ckpt
         if ckpt is not None:
             print("Mode: {} is being restored from: {}".format(m, ckpt))
@@ -44,7 +44,7 @@ def get_modality_restore_ckpts(args):
 class ModalitySyncer(nn.Module):
 
     def get_feature_extractor_based_on_mode(self, mode_params):
-        if mode_params.mode in [mu.ImgMode, mu.FlowMode, mu.KeypointHeatmap, mu.SegMask]:
+        if mode_params.mode.split('-')[0] in [mu.ImgMode, mu.FlowMode, mu.KeypointHeatmap, mu.SegMask]:
             return m3d.ImageFetCombiner(mode_params.img_fet_dim, mode_params.img_fet_segments)
         else:
             assert False, "Invalid mode provided: {}".format(mode_params)
@@ -275,7 +275,7 @@ class MultiModalModelTrainer(nn.Module):
                 'cossim/{}/ovr/{}'.format(tag, self.get_tuple_name(m0, m1)), ovr_scores.detach().cpu(), iter)
 
     def get_modality_feature_extractor(self, final_feature_size, last_size, mode):
-        if mode in [mu.ImgMode, mu.FlowMode, mu.KeypointHeatmap, mu.SegMask]:
+        if mode.split('-')[0] in [mu.ImgMode, mu.FlowMode, mu.KeypointHeatmap, mu.SegMask]:
             return m3d.ImageFetCombiner(final_feature_size, last_size)
         else:
             assert False, "Invalid mode provided: {}".format(mode)
@@ -285,10 +285,10 @@ class MultiModalModelTrainer(nn.Module):
 
         self.args = args
 
-        self.modes = args["modes"]
+        self.modes = args["modalities"]
         self.models = nn.ModuleDict(args["models"])
         self.num_classes = args["num_classes"]
-        self.data_sources = args["modes"]
+        self.data_sources = args["data_sources"]
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         # Gradient accumulation step interval
         self.grad_step_interval = 4
@@ -346,7 +346,7 @@ class MultiModalModelTrainer(nn.Module):
             ) for m in self.modes
         }
         self.standard_instance_mask = masku.process_mask(
-            masku.get_standard_instance_mask(self.B0, self.B1, self.args["pred_step"])
+            masku.get_standard_instance_mask(self.B0, self.B1, self.args["pred_step"], device=self.device)
         )
 
         self.modeSyncers = nn.ModuleDict()
@@ -423,7 +423,7 @@ class MultiModalModelTrainer(nn.Module):
         return "{}|{}".format(m0[:1], m1[:1])
 
     def get_mode_params(self, mode):
-        if mode in [mu.ImgMode, mu.FlowMode, mu.KeypointHeatmap, mu.SegMask]:
+        if mode.split('-')[0] in [mu.ImgMode, mu.FlowMode, mu.KeypointHeatmap, mu.SegMask]:
             return mu.ModeParams(
                 mode,
                 self.models[mode].param['feature_size'],
@@ -459,7 +459,7 @@ class MultiModalModelTrainer(nn.Module):
             input_seq = input_seq[:5]
 
         ic = 3
-        if mode != "imgs":
+        if not mode.startswith("imgs"):
             assert input_seq.shape[2] in [1, 2, 3, 17], "Invalid shape: {}".format(input_seq.shape)
             input_seq = torch.abs(input_seq)
             input_seq = input_seq.sum(dim=2, keepdim=True)
@@ -475,7 +475,7 @@ class MultiModalModelTrainer(nn.Module):
             nrow=self.args["num_seq"] * self.args["seq_len"]
         )
 
-        if mode == "imgs":
+        if mode.startswith("imgs"):
             denormed_img = self.denormalize(grid_img)
         else:
             denormed_img = grid_img
@@ -505,11 +505,11 @@ class MultiModalModelTrainer(nn.Module):
 
         pred_features, gt_all_features, agg_features = {}, {}, {}
         flat_scores = {}
-
         for mode in self.modes:
+            if not mode in data.keys():
+                continue
 
             input_seq = data[mode].to(self.device)
-
             assert input_seq.shape[0] == self.args["batch_size"]
             SQ = self.models[mode].last_size ** 2
 
@@ -537,7 +537,7 @@ class MultiModalModelTrainer(nn.Module):
 
         contexts = {}
 
-        for mode in self.modes:
+        for mode in flat_scores.keys():
             SQ = self.models[mode].last_size ** 2
 
             target_flattened = self.standard_grid_mask[mode].view(self.B0 * NS * SQ, self.B1 * NS * SQ)
@@ -559,6 +559,8 @@ class MultiModalModelTrainer(nn.Module):
                 loss_dict[mu.CPCLoss][mode] = self.criterias[mu.CPCLoss](score_flat, target)
 
         for (m0, m1) in self.mode_pairs:
+            if (m0 not in flat_scores.keys()) or (m1 not in flat_scores.keys()):
+                continue
 
             tupName = self.get_tuple_name(m0, m1)
 
@@ -618,15 +620,14 @@ class MultiModalModelTrainer(nn.Module):
         trainX, trainY = {m: [] for m in self.modes}, []
 
         tq = tqdm(self.train_loader, desc="Train progress: Ep {}".format(epoch), position=0)
-
         self.optimizer.zero_grad()
 
         for idx, data in enumerate(tq):
-
             trainY.append(data["labels"])
 
             _, gt_all_features, agg_features, flat_scores, trainX = \
                 self.perform_forward_passes(data, trainX)
+
             loss_dict, stats = \
                 self.update_metrics(gt_all_features, flat_scores, stats, data)
 
@@ -650,7 +651,8 @@ class MultiModalModelTrainer(nn.Module):
             # Perform logging
             if self.iteration % self.vis_log_freq == 0:
                 for mode in self.modes:
-                    self.log_visuals(data[mode], mode)
+                    if mode in data.keys():
+                        self.log_visuals(data[mode], mode)
 
             if idx % self.args["print_freq"] == 0:
                 self.log_metrics(losses_dict, stats, self.writer_train, prefix='local')
@@ -723,7 +725,6 @@ class MultiModalModelTrainer(nn.Module):
         for epoch in range(self.args["start_epoch"], self.args["epochs"]):
             train_losses, train_stats, trainD = self.train_epoch(epoch)
             ovr_loss, val_losses, val_stats, valD = self.validate_epoch(epoch)
-
             self.lr_scheduler.step(ovr_loss.avg)
 
             # Log fine-tune performance
@@ -732,7 +733,7 @@ class MultiModalModelTrainer(nn.Module):
                     self.model_finetuner.evaluate_classification(trainD, valD)
                     if not self.args["debug"]:
                         self.model_finetuner.evaluate_clustering(trainD, tag='train')
-                        self.model_finetuner.evaluate_clustering(valD, tag='val')
+                        # self.model_finetuner.evaluate_clustering(valD, tag='val')
 
             # save curve
             self.log_metrics(train_losses, train_stats, self.writer_train, prefix='global')
@@ -803,6 +804,7 @@ def run_multi_modal_training(args):
     args.num_classes = mu.get_num_classes(args.dataset)
     args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device("cpu")
 
+    # FIXME: support multiple views from the same modality
     args.modes = get_modality_list(args.modalities)
     args.restore_ckpts = get_modality_restore_ckpts(args)
     args.old_lr = None

@@ -42,7 +42,8 @@ FlowMode = "flow"
 FnbFlowMode = "farne"
 KeypointHeatmap = "kphm"
 SegMask = "seg"
-ModeList = [ImgMode, FlowMode, KeypointHeatmap, SegMask, FnbFlowMode]
+# FIXME: enable multiple views from the same modality
+ModeList = [ImgMode, FlowMode, KeypointHeatmap, SegMask, FnbFlowMode, 'imgs-0', 'imgs-1', 'imgs-2', 'imgs-3', 'imgs-4']
 
 ModeParams = namedtuple('ModeParams', ['mode', 'img_fet_dim', 'img_fet_segments', 'final_dim'])
 
@@ -136,6 +137,8 @@ def get_num_classes(dataset):
         return 21
     elif dataset == 'hmdb51':
         return 51
+    elif dataset == 'panasonic':
+        return 75
     else:
         return None
 
@@ -258,6 +261,17 @@ def get_imgs_transforms(args):
             ToTensor(),
             Normalize()
         ])
+    elif args_dict["dataset"] == 'panasonic':
+        transform = transforms.Compose([
+            RandomHorizontalFlip(consistent=True),
+            PadToSize(size=(256, 256)),
+            RandomCrop(size=224, consistent=True),
+            Scale(size=(args_dict["img_dim"], args_dict["img_dim"])),
+            RandomGray(consistent=False, p=0.5),
+            ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.25, p=1.0),
+            ToTensor(),
+            Normalize()
+        ])
 
     return transform
 
@@ -375,6 +389,15 @@ def get_dataset_loaders(args, transform, mode='train'):
                            downsample=args_dict["ds"],
                            vals_to_return=args_dict["data_sources"].split('_'),
                            sampling_method=args_dict["sampling"])
+    elif args_dict["dataset"] == 'panasonic':
+        dataset = Panasonic_3d(
+                    mode=mode,
+                    transform=transform,
+                    seq_len=args_dict["seq_len"],
+                    num_seq=args_dict["num_seq"],
+                    downsample=args_dict["ds"],
+                    vals_to_return=args_dict["data_sources"].split('_'),
+                    debug=args_dict["debug"])
     else:
         raise ValueError('dataset not supported')
 

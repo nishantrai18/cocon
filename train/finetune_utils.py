@@ -55,6 +55,7 @@ class QuickSupervisedModelTrainer(object):
             2. Mutual information based scores (across modalities)
         '''
         label = data["Y"].cpu().numpy()
+
         preds = self.fit_and_predict_clustering(data, tag)
         self.evaluate_clustering_based_on_ground_truth(preds, label, tag)
         self.evaluate_clustering_based_on_mutual_information(preds, tag)

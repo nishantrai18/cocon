@@ -108,7 +108,7 @@ def unfreeze_backbone(model):
 
 def main():
     global args; args = parser.parse_args()
-    global cuda; cuda = torch.device('cuda')
+    global device; device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     if args.dataset == 'ucf101': args.num_class = 101
     elif args.dataset == 'hmdb51': args.num_class = 51
@@ -138,7 +138,7 @@ def main():
         raise ValueError('wrong model!')
 
     model = nn.DataParallel(model)
-    model = model.to(cuda)
+    model = model.to(device)
     global criterion; criterion = nn.CrossEntropyLoss()
     
     ### optimizer ### 
@@ -318,8 +318,8 @@ def train(data_loader, model, optimizer, epoch):
 
     for idx, (input_seq, target, _) in enumerate(tq):
         tic = time.time()
-        input_seq = input_seq.to(cuda)
-        target = target.to(cuda)
+        input_seq = input_seq.to(device)
+        target = target.to(device)
         B = input_seq.size(0)
         output, _ = model(input_seq)
 
@@ -380,8 +380,8 @@ def validate(data_loader, model):
     with torch.no_grad():
         tq = tqdm(data_loader,  desc="Val progress: ")
         for idx, (input_seq, target, _) in enumerate(tq):
-            input_seq = input_seq.to(cuda)
-            target = target.to(cuda)
+            input_seq = input_seq.to(device)
+            target = target.to(device)
             B = input_seq.size(0)
             output, _ = model(input_seq)
 
@@ -417,8 +417,8 @@ def test(data_loader, model, extensive=False):
     with torch.no_grad():
         tq = tqdm(data_loader,  desc="Test progress: ")
         for idx, (input_seq, target, index) in enumerate(tq):
-            input_seq = input_seq.to(cuda)
-            target = target.to(cuda)
+            input_seq = input_seq.to(device)
+            target = target.to(device)
             B = input_seq.size(0)
             input_seq = input_seq.squeeze(0) # squeeze the '1' batch dim
             output, _ = model(input_seq)

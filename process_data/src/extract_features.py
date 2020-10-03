@@ -391,8 +391,8 @@ def process_videos(root, vid_provider, args, batch_size=32, debug=False):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--save_path', default='/scr/nishantr/data/ucf101/features/', type=str)
-    parser.add_argument('--dataset', default='/scr/nishantr/data/ucf101/videos', type=str)
+    parser.add_argument('--save_path', default='/scr/data/ucf101/features/', type=str)
+    parser.add_argument('--dataset', default='/scr/data/ucf101/videos', type=str)
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--vid_range', default='az', type=str)
     parser.add_argument('--debug', default=0, type=int)

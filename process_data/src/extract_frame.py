@@ -119,35 +119,19 @@ def main_kinetics400(v_root, f_root, dim=128):
             if os.path.exists(out_dir): print(out_dir, 'exists!'); continue
             print('extracting: %s' % v_class)
             # dim = 150 (crop to 128 later) or 256 (crop to 224 later)
-            Parallel(n_jobs=32)(delayed(extract_video_opencv)(p, f_root_real, dim=dim) for p in tqdm(v_paths, total=len(v_paths)))
-
-
-def main_Panasonic(v_root, f_root):
-    print('extracting Panasonic ... ')
-    print('extracting videos from %s' % v_root)
-    print('frame save to %s' % f_root)
-
-    if not os.path.exists(f_root): os.makedirs(f_root)
-    v_act_root = glob.glob(os.path.join(v_root, '*/'))
-    print(len(v_act_root))
-    for i, j in tqdm(enumerate(v_act_root), total=len(v_act_root)):
-        v_paths = glob.glob(os.path.join(j, '*.mkv'))
-        v_paths = sorted(v_paths)
-        Parallel(n_jobs=32)(delayed(extract_video_opencv)(p, f_root) for p in tqdm(v_paths, total=len(v_paths)))
+            Parallel(n_jobs=32)(delayed(extract_video_opencv)(p, f_root_real, dim=dim) for p in tqdm(v_paths, total=len(v_paths))) 
 
 
 if __name__ == '__main__':
     # v_root is the video source path, f_root is where to store frames
     # edit 'your_path' here:
-    #dataset_path = '/vision/u/nishantr/data'
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--ucf101', default=False, type=str2bool)
     parser.add_argument('--jhmdb', default=False, type=str2bool)
     parser.add_argument('--hmdb51', default=False, type=str2bool)
     parser.add_argument('--kinetics', default=False, type=str2bool)
-    parser.add_argument('--panasonic', default=False, type=str2bool)
-    parser.add_argument('--dataset_path', default='/scr/nishantr/data', type=str)
+    parser.add_argument('--dataset_path', default='/scr/data', type=str)
     parser.add_argument('--dim', default=128, type=int)
     args = parser.parse_args()
 
@@ -161,9 +145,6 @@ if __name__ == '__main__':
 
     if args.hmdb51:
         main_HMDB51(v_root=dataset_path+'/hmdb/videos', f_root=dataset_path+'/hmdb/frame')
-
-    if args.panasonic:
-        main_Panasonic(v_root=dataset_path+'/action_split_data/V1.0', f_root=dataset_path+'/frame', dim=256)
 
     if args.kinetics:
         if args.dim == 256:

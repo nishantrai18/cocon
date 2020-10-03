@@ -86,8 +86,15 @@ class BaseDataloader(data.Dataset):
             mode_str = "val" if ((mode == 'val') or (mode == 'test')) else mode
             mode_split_str = '/' + mode_str + '_split.csv'
 
-        split = '../process_data/data/' + self.dataset + mode_split_str
-        video_info = pd.read_csv(split, header=None)
+        split = '../data/' + self.dataset + mode_split_str
+
+        if "panasonic" in dataset:
+            # FIXME: change when access is changed
+            split = os.path.join('../data', '{}_split.csv'.format(mode))
+            # maximum 15 values
+            video_info = pd.read_csv(split, header=None, names=list(range(15)))
+        else:
+            video_info = pd.read_csv(split, header=None)
 
         # poses_mat_dict: vpath to poses_mat
         self.poses_dict = {}
@@ -96,7 +103,9 @@ class BaseDataloader(data.Dataset):
         self.action_dict_encode = {}
         self.action_dict_decode = {}
 
-        action_file = os.path.join('../process_data/data/' + self.dataset, 'classInd.txt')
+        action_file = os.path.join('../data/' + self.dataset, 'classInd.txt')
+        if "panasonic" in dataset:
+            action_file = '/vision/u/haofeng/data/classInd.txt'
         action_df = pd.read_csv(action_file, sep=' ', header=None)
         for _, row in action_df.iterrows():
             act_id, act_name = row
@@ -106,10 +115,15 @@ class BaseDataloader(data.Dataset):
             self.action_dict_encode[act_name] = act_id
 
         drop_idx = []
-
         # filter out too short videos:
         for idx, row in tqdm(video_info.iterrows(), total=len(video_info)):
-            vpath, vlen = row
+            # FIXME: make dataloader more modular. This only works for panasonic data
+            num_views = len([i for i in np.array(row) if i == i]) / 3
+            # drop indices with only a single view
+            if num_views < 2:
+                drop_idx.append(idx)
+                continue
+            vpath, vlen, vname = row[:3]
             if self.sampling_method == 'disjoint':
                 if vlen-self.num_seq*self.seq_len*self.downsample <= 0:
                     drop_idx.append(idx)
@@ -164,23 +178,24 @@ class BaseDataloader(data.Dataset):
 
         return [seq_idx_block, vpath]
 
-    def idx_sampler_dynamic(self, seq_len, num_seq, vlen, vpath):
+    def idx_sampler_dynamic(self, seq_len, num_seq, vlen, vpath, start_idx=None):
         '''sample index from a video'''
         downsample = self.downsample
         if (vlen - (num_seq * seq_len * self.downsample)) <= 0:
             downsample = ((vlen - 1) / (num_seq * seq_len * 1.0)) * 0.9
 
         n = 1
-        try:
-            start_idx = np.random.choice(range(vlen - int(num_seq * seq_len * downsample)), n)
-        except:
-            print("Error!", vpath, vlen, num_seq, seq_len, downsample, n)
+        if start_idx is None:
+            try:
+                start_idx = np.random.choice(range(vlen - int(num_seq * seq_len * downsample)), n)
+            except:
+                print("Error!", vpath, vlen, num_seq, seq_len, downsample, n)
 
         seq_idx = np.expand_dims(np.arange(num_seq), -1) * downsample * seq_len + start_idx
         seq_idx_block = seq_idx + np.expand_dims(np.arange(seq_len), 0) * downsample
         seq_idx_block = seq_idx_block.astype(int)
 
-        return [seq_idx_block, vpath]
+        return [seq_idx_block, vpath], start_idx
 
     def idx_sampler_disjoint(self, seq_len, num_seq, vlen, vpath):
         '''sample index from a video'''
@@ -680,3 +695,104 @@ class JHMDB_3d(BaseDataloaderHMDB):
             sampling_method,
             dataset="jhmdb"
         )
+
+
+class Panasonic_3d(BaseDataloader):
+
+    def __init__(
+        self,
+        mode='train',
+        transform=None,
+        seq_len=5,
+        num_seq=6,
+        downsample=3,
+        which_split=1,
+        vals_to_return=["imgs"],
+        sampling_method="dynamic",
+        debug=False,
+    ):
+        super(Panasonic_3d, self).__init__(
+            mode,
+            transform,
+            seq_len,
+            num_seq,
+            downsample,
+            which_split,
+            vals_to_return,
+            sampling_method,
+            dataset="panasonic",
+            debug=debug
+        )
+
+
+    def __getitem__(self, index):
+        row = np.array(self.video_info.iloc[index]).tolist()
+        num_views = int(len([i for i in row if i == i]) / 3)
+        # FIXME: randomly sample indices
+        i1 = np.random.randint(1, num_views)
+        vpath0, vlen0, vname, vpath1, vlen1, _ = row[:3] + row[3*i1 : 3*i1+3]
+        # FIXME: make sure the first frame is synchronized
+        vlen = int(min(vlen0, vlen1))
+
+        # Remove trailing backslash if any
+        vpath0 = vpath0.rstrip('/')
+        vpath1 = vpath1.rstrip('/')
+
+        seq_len = self.seq_len
+        if "tgt" in self.vals_to_return:
+            seq_len = 2 * self.seq_len
+
+        items0, start_idx = self.idx_sampler(seq_len, self.num_seq, vlen, vpath0)
+        items1, _ = self.idx_sampler(seq_len, self.num_seq, vlen, vpath1, start_idx)
+        if items0 is None or items1 is None:
+            print(vpath)
+
+        idx_block0, vpath0 = items0
+        assert idx_block0.shape == (self.num_seq, seq_len)
+        idx_block0 = idx_block0.reshape(self.num_seq * seq_len)
+
+        idx_block1, vpath1 = items1
+        assert idx_block1.shape == (self.num_seq, seq_len)
+        idx_block1 = idx_block1.reshape(self.num_seq * seq_len)
+
+        vals = {}
+
+        # FIXME: make more general
+        vals_to_return = np.unique([i.split('-')[0] for i in self.vals_to_return])
+        # Populate return list
+        if mu.ImgMode in vals_to_return:
+            img_t_seq0 = self.fetch_imgs_seq(vpath0, seq_len, idx_block0)
+            # 0 stands for the ego-view while 1 stands for the third-person view
+            vals['{}-0'.format(mu.ImgMode)] = img_t_seq0
+            img_t_seq1 = self.fetch_imgs_seq(vpath1, seq_len, idx_block1)
+            vals['{}-1'.format(mu.ImgMode)] = img_t_seq1
+
+        if mu.FlowMode in self.vals_to_return:
+            flow_t_seq = self.fetch_flow_seq(vpath, seq_len, idx_block)
+            vals[mu.FlowMode] = flow_t_seq
+        if mu.FnbFlowMode in self.vals_to_return:
+            fnb_flow_t_seq = self.fetch_fnb_flow_seq(vpath, seq_len, idx_block)
+            vals[mu.FnbFlowMode] = fnb_flow_t_seq
+        if mu.KeypointHeatmap in self.vals_to_return:
+            hm_t_seq = self.fetch_kp_heatmap_seq(vpath, seq_len, idx_block)
+            vals[mu.KeypointHeatmap] = hm_t_seq
+        if mu.SegMask in self.vals_to_return:
+            seg_t_seq = self.fetch_seg_mask_seq(vpath, seq_len, idx_block)
+            vals[mu.SegMask] = seg_t_seq
+
+        # Process double length target results
+        if "tgt" in self.vals_to_return:
+            orig_keys = list(vals.keys())
+            for k in orig_keys:
+                full_x = vals[k]
+                vals[k] = full_x[:, :self.seq_len, ...]
+                vals["tgt_" + k] = full_x[:, self.seq_len:, ...]
+        if "labels" in self.vals_to_return:
+            vid = self.encode_action(vname)
+            label = torch.LongTensor([vid])
+            vals["labels"] = label
+
+        # Add video index field
+        vals["vnames"] = torch.LongTensor([index])
+
+        return vals

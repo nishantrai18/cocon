@@ -36,7 +36,7 @@ def get_parallel_model(model):
 
 
 def get_num_channels(modality):
-    if modality == mu.ImgMode:
+    if modality.startswith(mu.ImgMode):
         return 3
     elif modality == mu.FlowMode:
         return 2
@@ -99,7 +99,7 @@ class IdentityFlatten(nn.Module):
 class DpcRnn(nn.Module):
 
     def get_modality_feature_extractor(self):
-        if self.mode in [mu.ImgMode, mu.FlowMode, mu.KeypointHeatmap, mu.SegMask]:
+        if self.mode.split('-')[0] in [mu.ImgMode, mu.FlowMode, mu.KeypointHeatmap, mu.SegMask]:
             return ImageFetCombiner(self.final_feature_size, self.last_size)
         else:
             assert False, "Invalid mode provided: {}".format(self.mode)
@@ -162,6 +162,7 @@ class DpcRnn(nn.Module):
         (B, N, C, SL, H, W) = block.shape
         block = block.view(B*N, C, SL, H, W)
         feature = self.backbone(block)
+
         del block
         feature = F.relu(feature)
 
