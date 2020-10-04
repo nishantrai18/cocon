@@ -90,7 +90,7 @@ class BaseDataloader(data.Dataset):
 
         if "panasonic" in dataset:
             # FIXME: change when access is changed
-            split = os.path.join('../data', '{}_split.csv'.format(mode))
+            split = os.path.join('/scr/nishantr/panasonic', '{}_split.csv'.format(mode))
             # maximum 15 values
             video_info = pd.read_csv(split, header=None, names=list(range(15)))
         else:
@@ -105,7 +105,7 @@ class BaseDataloader(data.Dataset):
 
         action_file = os.path.join('../data/' + self.dataset, 'classInd.txt')
         if "panasonic" in dataset:
-            action_file = '/vision/u/haofeng/data/classInd.txt'
+            action_file = '/scr/nishantr/panasonic/classInd.txt'
         action_df = pd.read_csv(action_file, sep=' ', header=None)
         for _, row in action_df.iterrows():
             act_id, act_name = row

@@ -296,8 +296,6 @@ class MultiModalModelTrainer(nn.Module):
 
         self.vis_log_freq = args["vis_log_freq"]
 
-        self.losses = [mu.CPCLoss, mu.DenseCosSimLoss, mu.CooperativeLoss]
-
         # Model log writers
         self.img_path = args["img_path"]
         self.model_path = args["model_path"]
@@ -355,7 +353,6 @@ class MultiModalModelTrainer(nn.Module):
 
         self.mode_pairs = [(m0, m1) for m0 in self.modes for m1 in self.modes if m0 < m1]
 
-        self.losses.append(mu.ModeSim)
         self.sync_wt = self.args["msync_wt"]
 
         for (m0, m1) in self.mode_pairs:
@@ -376,7 +373,6 @@ class MultiModalModelTrainer(nn.Module):
         print("[NOTE] Losses used: ", self.losses)
 
         self.cosSimHandler = su.CosSimHandler()
-        print("Using CosSim Dot Losses!")
         self.dot_wt = args["dot_wt"]
 
         # Use a smaller learning rate if the backbone is already trained
@@ -566,7 +562,7 @@ class MultiModalModelTrainer(nn.Module):
                 supervised_target = data['labels']
 
                 # Compute and log performance metrics
-                topKs = calc_topk_accuracy(score_flat, supervised_target, self.accuracyKList)
+                topKs = calc_topk_accuracy(probability, supervised_target, self.accuracyKList)
                 for i in range(len(self.accuracyKList)):
                     stats[mu.CPCLoss][mode]["acc" + str(self.accuracyKList[i])].update(topKs[i].item(), B)
 

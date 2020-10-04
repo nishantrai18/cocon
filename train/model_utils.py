@@ -101,7 +101,6 @@ def get_multi_modal_model_train_args():
     parser.add_argument('--tune_imgs_bb', default=-1.0, type=float, help='Fine-tune imgs back-bone lr degradation.')
 
     # Hyper-parameters
-    parser.add_argument('--losses', default="", type=str2list, help='List of losses to use')
     parser.add_argument('--msync_wt', default=10.0, type=float, help='Loss weight to use for mode sync loss')
     parser.add_argument('--dot_wt', default=10.0, type=float, help='Loss weight to use for mode sync loss')
 
@@ -122,7 +121,7 @@ def get_multi_modal_model_train_args():
     # Flags which need not be touched
     parser.add_argument('--resume', default='', type=str, help='path of model to resume')
     parser.add_argument('--pretrain', default='', type=str, help='path of pretrained model')
-    parser.add_argument('--prefix', default='22Mar', type=str, help='prefix of checkpoint filename')
+    parser.add_argument('--prefix', required=True, type=str, help='prefix of checkpoint filename')
 
     # Extra arguments
     parser.add_argument('--debug', default=False, type=str2bool, help='Reduces latency for data ops')
@@ -456,7 +455,7 @@ def set_multi_modal_path(args):
     else:
         args.modes_str = '_'.join(args.modes)
         args.l2norm_str = str(args.l2_norm)
-        exp_path = 'logs/{args.prefix}/{args.dataset}-{args.img_dim}_{0}_' \
+        exp_path = '/scr/nishantr/logs/{args.prefix}/{args.dataset}-{args.img_dim}_{0}_' \
                    'bs{args.batch_size}_seq{args.num_seq}_pred{args.pred_step}_len{args.seq_len}_ds{args.ds}_' \
                    'train-{args.train_what}{1}_modes-{args.modes_str}_l2norm' \
                    '_{args.l2norm_str}_{args.notes}'.format(

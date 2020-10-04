@@ -115,7 +115,7 @@ class DpcRnn(nn.Module):
         self.seq_len = args["seq_len"]
         self.pred_step = args["pred_step"]
         self.sample_size = args["img_dim"]
-        self.is_supervision_enabled = args["supervision"]
+        self.is_supervision_enabled = mu.SupervisionLoss in args["losses"]
         self.last_duration = int(math.ceil(self.seq_len / 4))
         self.last_size = int(math.ceil(self.sample_size / 32))
         print('final feature map has size %dx%d' % (self.last_size, self.last_size))
@@ -168,7 +168,7 @@ class DpcRnn(nn.Module):
         self.final_bn.bias.data.zero_()
 
         # Update the number of classes here
-        self.num_classes = 100
+        self.num_classes = 75
         self.dropout = 0.5
         self.final_fc = nn.Sequential(
             nn.Dropout(self.dropout),
@@ -240,11 +240,10 @@ class DpcRnn(nn.Module):
             context, _ = self.agg(feature)
             context = context[:, -1, :].unsqueeze(1)
             context = F.avg_pool3d(context, (1, self.last_size, self.last_size), stride=1).squeeze(-1).squeeze(-1)
-            del feature
 
             # [B,N,C] -> [B,C,N] -> BN() -> [B,N,C], because BN operates on id=1 channel.
             context = self.final_bn(context.transpose(-1, -2)).transpose(-1,-2)
-            probabilities = self.final_fc(context).view(B, -1, self.num_class)
+            probabilities = self.final_fc(context).view(B, -1, self.num_classes)
 
         ### aggregate, predict future ###
         # Generate inferred future (stored in feature_inf) through the initial frames
