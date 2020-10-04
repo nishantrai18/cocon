@@ -115,9 +115,11 @@ class DpcRnn(nn.Module):
         self.seq_len = args["seq_len"]
         self.pred_step = args["pred_step"]
         self.sample_size = args["img_dim"]
+        self.is_supervision_enabled = args["supervision"]
         self.last_duration = int(math.ceil(self.seq_len / 4))
         self.last_size = int(math.ceil(self.sample_size / 32))
         print('final feature map has size %dx%d' % (self.last_size, self.last_size))
+        print('Supervision enabled: {}'.format(self.is_supervision_enabled))
 
         self.mode = args["mode"]
         self.in_channels = get_num_channels(self.mode)
@@ -156,6 +158,24 @@ class DpcRnn(nn.Module):
         # self.relu = nn.ReLU(inplace=False)
         self._initialize_weights(self.agg)
         self._initialize_weights(self.network_pred)
+
+        if self.is_supervision_enabled:
+            self.initialize_supervised_inference_layers()
+
+    def initialize_supervised_inference_layers(self):
+        self.final_bn = nn.BatchNorm1d(self.param['feature_size'])
+        self.final_bn.weight.data.fill_(1)
+        self.final_bn.bias.data.zero_()
+
+        # Update the number of classes here
+        self.num_classes = 100
+        self.dropout = 0.5
+        self.final_fc = nn.Sequential(
+            nn.Dropout(self.dropout),
+            nn.Linear(self.param['feature_size'], self.num_classes),
+        )
+
+        self._initialize_weights(self.final_fc)
 
     def get_representation(self, block, detach=False):
 
@@ -215,6 +235,17 @@ class DpcRnn(nn.Module):
 
         del feature_inf_all
 
+        # aggregate and predict overall context
+        if self.is_supervision_enabled:
+            context, _ = self.agg(feature)
+            context = context[:, -1, :].unsqueeze(1)
+            context = F.avg_pool3d(context, (1, self.last_size, self.last_size), stride=1).squeeze(-1).squeeze(-1)
+            del feature
+
+            # [B,N,C] -> [B,C,N] -> BN() -> [B,N,C], because BN operates on id=1 channel.
+            context = self.final_bn(context.transpose(-1, -2)).transpose(-1,-2)
+            probabilities = self.final_fc(context).view(B, -1, self.num_class)
+
         ### aggregate, predict future ###
         # Generate inferred future (stored in feature_inf) through the initial frames
         _, hidden = self.agg(feature[:, 0:N-self.pred_step, :].contiguous())
@@ -245,10 +276,8 @@ class DpcRnn(nn.Module):
         # Contains the representations for each of the next pred steps
         pred = torch.stack(pred, 1) # B, pred_step, xxx
 
-        cdot, cdot_fet = self.compute_cdot_features(feature)
-
         # Both are of the form [B, pred_step, D, s, s]
-        return pred, feature_inf, feature, hidden
+        return pred, feature_inf, feature, probabilities, hidden
 
     def _initialize_weights(self, module):
         for name, param in module.named_parameters():

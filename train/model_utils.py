@@ -25,6 +25,7 @@ eps = 1e-7
 
 CPCLoss = "cpc"
 CooperativeLoss = "coop"
+SupervisionLoss = "super"
 
 # Losses for mode sync
 ModeSim = "sim"
@@ -34,7 +35,7 @@ DenseCosSimLoss = "dcssim"
 DenseCorrLoss = "dcrr"
 
 # Sets of different losses
-LossList = [CPCLoss, CosSimLoss, CorrLoss, DenseCorrLoss, DenseCosSimLoss, CooperativeLoss]
+LossList = [CPCLoss, CosSimLoss, CorrLoss, DenseCorrLoss, DenseCosSimLoss, CooperativeLoss, SupervisionLoss]
 ModeSyncLossList = [CosSimLoss, CorrLoss, DenseCorrLoss, DenseCosSimLoss]
 
 ImgMode = "imgs"
@@ -100,6 +101,7 @@ def get_multi_modal_model_train_args():
     parser.add_argument('--tune_imgs_bb', default=-1.0, type=float, help='Fine-tune imgs back-bone lr degradation.')
 
     # Hyper-parameters
+    parser.add_argument('--losses', default="", type=str2list, help='List of losses to use')
     parser.add_argument('--msync_wt', default=10.0, type=float, help='Loss weight to use for mode sync loss')
     parser.add_argument('--dot_wt', default=10.0, type=float, help='Loss weight to use for mode sync loss')
 

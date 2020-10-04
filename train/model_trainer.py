@@ -287,6 +287,7 @@ class MultiModalModelTrainer(nn.Module):
 
         self.modes = args["modalities"]
         self.models = nn.ModuleDict(args["models"])
+        self.losses = args["losses"]
         self.num_classes = args["num_classes"]
         self.data_sources = args["data_sources"]
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -324,6 +325,7 @@ class MultiModalModelTrainer(nn.Module):
         self.criterias = {
             mu.CPCLoss: self.val_criterion,
             mu.CooperativeLoss: nn.L1Loss(),
+            mu.SupervisionLoss: nn.CrossEntropyLoss(),
         }
 
         self.CooperativeLossLabel = mu.CooperativeLoss
@@ -503,7 +505,7 @@ class MultiModalModelTrainer(nn.Module):
 
         B, NS = self.args["batch_size"], self.args["pred_step"]
 
-        pred_features, gt_all_features, agg_features = {}, {}, {}
+        pred_features, gt_all_features, agg_features, probabilities = {}, {}, {}, {}
         flat_scores = {}
         for mode in self.modes:
             if not mode in data.keys():
@@ -513,11 +515,12 @@ class MultiModalModelTrainer(nn.Module):
             assert input_seq.shape[0] == self.args["batch_size"]
             SQ = self.models[mode].last_size ** 2
 
-            pred_features[mode], gt_features, gt_all_features[mode], X = \
+            pred_features[mode], gt_features, gt_all_features[mode], probs, X = \
                 self.models[mode](input_seq, ret_rep=True)
 
             gt_all_features[mode] = self.cpc_projections[mode](gt_all_features[mode])
             pred_features[mode] = self.cpc_projections[mode](pred_features[mode])
+            probabilities[mode] = probs
 
             # score is a 6d tensor: [B, P, SQ, B', N', SQ]
             score_ = self.get_feature_pair_score(pred_features[mode], gt_features)
@@ -528,14 +531,12 @@ class MultiModalModelTrainer(nn.Module):
 
             del input_seq
 
-        return pred_features, gt_all_features, agg_features, flat_scores, Xs
+        return pred_features, gt_all_features, agg_features, flat_scores, probabilities, Xs
 
-    def update_metrics(self, gt_all_features, flat_scores, stats, data):
+    def update_metrics(self, gt_all_features, flat_scores, probabilities, stats, data):
 
         B, NS, N = self.args["batch_size"], self.args["pred_step"], self.args["num_seq"]
         loss_dict = {k: {} for k in self.losses}
-
-        contexts = {}
 
         for mode in flat_scores.keys():
             SQ = self.models[mode].last_size ** 2
@@ -543,7 +544,7 @@ class MultiModalModelTrainer(nn.Module):
             target_flattened = self.standard_grid_mask[mode].view(self.B0 * NS * SQ, self.B1 * NS * SQ)
 
             # CPC loss
-            if True:
+            if mu.CPCLoss in self.losses:
 
                 score_flat = flat_scores[mode]
                 target = target_flattened
@@ -558,15 +559,29 @@ class MultiModalModelTrainer(nn.Module):
                 # Compute CPC loss for independent model training
                 loss_dict[mu.CPCLoss][mode] = self.criterias[mu.CPCLoss](score_flat, target)
 
-        for (m0, m1) in self.mode_pairs:
-            if (m0 not in flat_scores.keys()) or (m1 not in flat_scores.keys()):
-                continue
+            # Supervision loss
+            if mu.SupervisionLoss in self.losses:
 
-            tupName = self.get_tuple_name(m0, m1)
+                probability = probabilities[mode]
+                supervised_target = data['labels']
 
-            # Cdot related losses
-            if True:
+                # Compute and log performance metrics
+                topKs = calc_topk_accuracy(score_flat, supervised_target, self.accuracyKList)
+                for i in range(len(self.accuracyKList)):
+                    stats[mu.CPCLoss][mode]["acc" + str(self.accuracyKList[i])].update(topKs[i].item(), B)
 
+                # Compute CPC loss for independent model training
+                loss_dict[mu.SupervisionLoss][mode] = \
+                    self.criterias[mu.SupervisionLoss](probability, supervised_target)
+
+        if mu.CooperativeLoss in self.losses:
+            for (m0, m1) in self.mode_pairs:
+                if (m0 not in flat_scores.keys()) or (m1 not in flat_scores.keys()):
+                    continue
+
+                tupName = self.get_tuple_name(m0, m1)
+
+                # Cdot related losses
                 comp_gt_all0 = self.compiled_features[m0](gt_all_features[m0]).unsqueeze(3).unsqueeze(3)
                 comp_gt_all1 = self.compiled_features[m1](gt_all_features[m1]).unsqueeze(3).unsqueeze(3)
                 cdot0 = self.interModeDotHandler.get_cluster_dots(comp_gt_all0)
@@ -580,9 +595,7 @@ class MultiModalModelTrainer(nn.Module):
                 cos_sim_dot_loss = self.criterias[self.CooperativeLossLabel](cdot0, cdot1)
                 loss_dict[self.CooperativeLossLabel][tupName] = self.dot_wt * cos_sim_dot_loss
 
-            # Modality sync loss
-            if True:
-
+                # Modality sync loss
                 sync_loss, mode_stats = self.modeSyncers[tupName](gt_all_features[m0], gt_all_features[m1])
 
                 # stats: dict modeLoss -> specificStat
@@ -625,11 +638,11 @@ class MultiModalModelTrainer(nn.Module):
         for idx, data in enumerate(tq):
             trainY.append(data["labels"])
 
-            _, gt_all_features, agg_features, flat_scores, trainX = \
+            _, gt_all_features, agg_features, flat_scores, probabilities, trainX = \
                 self.perform_forward_passes(data, trainX)
 
             loss_dict, stats = \
-                self.update_metrics(gt_all_features, flat_scores, stats, data)
+                self.update_metrics(gt_all_features, flat_scores, probabilities, stats, data)
 
             loss = torch.tensor(0.0).to(self.device)
             for l in loss_dict.keys():
@@ -690,8 +703,9 @@ class MultiModalModelTrainer(nn.Module):
             for idx, data in enumerate(tq):
                 valY.append(data["labels"])
 
-                _, gt_all_features, agg_features, flat_scores, valX = self.perform_forward_passes(data, valX)
-                loss_dict, stats = self.update_metrics(gt_all_features, flat_scores, stats, data)
+                _, gt_all_features, agg_features, flat_scores, probabilities, valX = \
+                    self.perform_forward_passes(data, valX)
+                loss_dict, stats = self.update_metrics(gt_all_features, flat_scores, probabilities, stats, data)
 
                 # Perform logging
                 if self.iteration % self.vis_log_freq == 0:
