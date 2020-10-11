@@ -88,7 +88,6 @@ def get_multi_modal_model_train_args():
     parser.add_argument('--train_what', default='all', type=str)
     parser.add_argument('--img_dim', default=128, type=int)
     parser.add_argument('--sampling', default="dynamic", type=str, help='sampling method (disjoint, random, dynamic)')
-    parser.add_argument('--l2_norm', default=True, type=str2bool, help='Whether to perform L2 normalization')
     parser.add_argument('--temp', default=0.07, type=float, help='Temperature to use with L2 normalization')
 
     # Training specific flags
@@ -454,11 +453,9 @@ def set_multi_modal_path(args):
         exp_path = os.path.dirname(os.path.dirname(args.resume))
     else:
         args.modes_str = '_'.join(args.modes)
-        args.l2norm_str = str(args.l2_norm)
         exp_path = '/scr/nishantr/logs/{args.prefix}/{args.dataset}-{args.img_dim}_{0}_' \
                    'bs{args.batch_size}_seq{args.num_seq}_pred{args.pred_step}_len{args.seq_len}_ds{args.ds}_' \
-                   'train-{args.train_what}{1}_modes-{args.modes_str}_l2norm' \
-                   '_{args.l2norm_str}_{args.notes}'.format(
+                   'train-{args.train_what}{1}_modes-{args.modes_str}_{args.notes}'.format(
                         'r%s' % args.net[6::],
                         '_pt=%s' % args.pretrain.replace('/','-') if args.pretrain else '',
                         args=args
@@ -510,12 +507,12 @@ def get_stats_dict(losses_dict, stats, eval=False):
         for mode in stats[loss].keys():
             for stat, meter in stats[loss][mode].items():
                 val = meter.avg if eval else meter.local_avg
-                postfix_dict[loss[:3] + '_' + mode[:3] + "_" + str(stat)] = round(val, 3)
+                postfix_dict[loss[:3] + '_' + mode + "_" + str(stat)] = round(val, 3)
 
     # Populate losses
     for loss in losses_dict.keys():
         for key, meter in losses_dict[loss].items():
-            key_str = "l_{}_{}".format(loss, key[:3])
+            key_str = "l_{}_{}".format(loss, key)
             val = meter.avg if eval else meter.local_avg
             postfix_dict[key_str] = round(val, 3)
 

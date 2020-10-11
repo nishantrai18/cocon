@@ -309,7 +309,7 @@ class MultiModalModelTrainer(nn.Module):
         self.train_loader = mu.get_dataset_loaders(args, transform, 'train')
         self.val_loader = mu.get_dataset_loaders(args, transform, 'val')
         self.num_classes = args["num_classes"]
-        self.l2_norm = args["l2_norm"]
+        self.l2_norm = True
         self.temp = args["temp"] if self.l2_norm else 1.0
 
         self.common_dim = 128
@@ -559,16 +559,16 @@ class MultiModalModelTrainer(nn.Module):
             if mu.SupervisionLoss in self.losses:
 
                 probability = probabilities[mode]
-                supervised_target = data['labels']
+                supervised_target = data['labels'].to(self.device)
 
                 # Compute and log performance metrics
                 topKs = calc_topk_accuracy(probability, supervised_target, self.accuracyKList)
                 for i in range(len(self.accuracyKList)):
-                    stats[mu.CPCLoss][mode]["acc" + str(self.accuracyKList[i])].update(topKs[i].item(), B)
+                    stats[mu.SupervisionLoss][mode]["acc" + str(self.accuracyKList[i])].update(topKs[i].item(), B)
 
                 # Compute CPC loss for independent model training
                 loss_dict[mu.SupervisionLoss][mode] = \
-                    self.criterias[mu.SupervisionLoss](probability, supervised_target)
+                    self.criterias[mu.SupervisionLoss](probability, supervised_target.view(-1))
 
         if mu.CooperativeLoss in self.losses:
             for (m0, m1) in self.mode_pairs:
@@ -752,6 +752,8 @@ class MultiModalModelTrainer(nn.Module):
             # save check_point for each mode individually
             for modality in self.modes:
                 loss = mu.CPCLoss
+                if loss not in self.losses:
+                    loss = mu.SupervisionLoss
 
                 is_best = val_stats[loss][modality][1].avg > best_acc[modality]
                 best_acc[modality] = max(val_stats[loss][modality][1].avg, best_acc[modality])

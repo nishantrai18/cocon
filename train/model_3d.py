@@ -123,7 +123,7 @@ class DpcRnn(nn.Module):
 
         self.mode = args["mode"]
         self.in_channels = get_num_channels(self.mode)
-        self.l2_norm = args["l2_norm"]
+        self.l2_norm = True
 
         track_running_stats = True
         print("Track running stats: {}".format(track_running_stats))
@@ -243,7 +243,7 @@ class DpcRnn(nn.Module):
 
             # [B,N,C] -> [B,C,N] -> BN() -> [B,N,C], because BN operates on id=1 channel.
             context = self.final_bn(context.transpose(-1, -2)).transpose(-1,-2)
-            probabilities = self.final_fc(context).view(B, -1, self.num_classes)
+            probabilities = self.final_fc(context).view(B, self.num_classes)
 
         ### aggregate, predict future ###
         # Generate inferred future (stored in feature_inf) through the initial frames
