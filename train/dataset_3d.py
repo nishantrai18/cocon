@@ -51,7 +51,8 @@ class BaseDataloader(data.Dataset):
         vals_to_return,
         sampling_method,
         dataset,
-        debug=False
+        debug=False,
+        postfix=''
     ):
         super(BaseDataloader, self).__init__()
 
@@ -66,7 +67,7 @@ class BaseDataloader(data.Dataset):
         # Describes which particular items to return e.g. ["imgs", "poses", "labels"]
         self.vals_to_return = set(vals_to_return)
         self.sampling_method = sampling_method
-        self.num_classes = mu.get_num_classes(self.dataset)
+        self.num_classes = mu.get_num_classes(self.dataset if not postfix else '-'.join((self.dataset, postfix)))
 
         assert not ((self.dataset == "hmdb51") and ("poses" in self.vals_to_return)), \
             "HMDB51 does not support poses yet"
@@ -90,9 +91,9 @@ class BaseDataloader(data.Dataset):
 
         if "panasonic" in dataset:
             # FIXME: change when access is changed
-            split = os.path.join('../data', '{}_split.csv'.format(mode))
+            split = os.path.join('../data', '{}_split{}.csv'.format(mode, '_' + postfix if postfix else ''))
             # maximum 15 values
-            video_info = pd.read_csv(split, header=None, names=list(range(15)))
+            video_info = pd.read_csv(split, header=None, names=list(range(20)))
         else:
             video_info = pd.read_csv(split, header=None)
 
@@ -103,9 +104,7 @@ class BaseDataloader(data.Dataset):
         self.action_dict_encode = {}
         self.action_dict_decode = {}
 
-        action_file = os.path.join('../data/' + self.dataset, 'classInd.txt')
-        if "panasonic" in dataset:
-            action_file = '/vision/u/haofeng/data/classInd.txt'
+        action_file = os.path.join('../data/' + self.dataset, 'classInd{}.txt'.format('_' + postfix if postfix else ''))
         action_df = pd.read_csv(action_file, sep=' ', header=None)
         for _, row in action_df.iterrows():
             act_id, act_name = row
@@ -114,30 +113,51 @@ class BaseDataloader(data.Dataset):
             self.action_dict_decode[act_id] = act_name
             self.action_dict_encode[act_name] = act_id
 
-        drop_idx = []
+        drop_idx = set()
+        # track duplicate categories
+        dup_cat_dict = dict()
         # filter out too short videos:
         for idx, row in tqdm(video_info.iterrows(), total=len(video_info)):
             # FIXME: make dataloader more modular. This only works for panasonic data
-            num_views = len([i for i in np.array(row) if i == i]) / 3
+            num_views = int(len([i for i in np.array(row) if i == i]) / 4)
+            # drop indices with no ego-view
+            view_names = [row[i * 4].split('/')[-1].split('_')[2] for i in range(num_views)]
+            if not 'v000' in view_names:
+                drop_idx.add(idx)
+                continue
             # drop indices with only a single view
             if num_views < 2:
-                drop_idx.append(idx)
+                drop_idx.add(idx)
                 continue
-            vpath, vlen, vname = row[:3]
+            # drop indices with multiple categories
+            p, r, _, a = row[0].split('/')[-1].split('_')
+            s = row[1]
+            e = row[2]
+            key = (p, r, a, s, e)
+            if key in dup_cat_dict:
+                # drop duplicates
+                drop_idx.add(idx)
+                drop_idx.add(dup_cat_dict[key])
+            dup_cat_dict[key] = idx
+
+            # FIXME: dropping indices with > 1 categories here for now. Might need to change
+
+            vpath, vstart, vend, vname = row[:4]
+            vlen = int(vend - vstart + 1)
             if self.sampling_method == 'disjoint':
                 if vlen-self.num_seq*self.seq_len*self.downsample <= 0:
-                    drop_idx.append(idx)
+                    drop_idx.add(idx)
             else:
                 if vlen <= 0:
-                    drop_idx.append(idx)
+                    drop_idx.add(idx)
+        self.video_info = video_info.drop(list(drop_idx), axis=0)
 
-        self.video_info = video_info.drop(drop_idx, axis=0)
-
-        if self.debug:
-            self.video_info = self.video_info.sample(frac=0.0025, random_state=42)
-        elif self.mode == 'val':
-            self.video_info = self.video_info.sample(frac=0.3)
-            # self.video_info = self.video_info.head(int(0.3 * len(self.video_info)))
+        # FIXME: panasonic data don't need val sampling here. Try making this more modular!
+        # if self.debug:
+        #     self.video_info = self.video_info.sample(frac=0.0025, random_state=42)
+        # elif self.mode == 'val':
+        #     self.video_info = self.video_info.sample(frac=0.3)
+        #     # self.video_info = self.video_info.head(int(0.3 * len(self.video_info)))
 
         self.idx_sampler = None
         if self.sampling_method == "dynamic":
@@ -178,20 +198,20 @@ class BaseDataloader(data.Dataset):
 
         return [seq_idx_block, vpath]
 
-    def idx_sampler_dynamic(self, seq_len, num_seq, vlen, vpath, start_idx=None):
+    def idx_sampler_dynamic(self, seq_len, num_seq, vlen, vpath, idx_offset=0, start_idx=-1):
         '''sample index from a video'''
         downsample = self.downsample
         if (vlen - (num_seq * seq_len * self.downsample)) <= 0:
             downsample = ((vlen - 1) / (num_seq * seq_len * 1.0)) * 0.9
 
         n = 1
-        if start_idx is None:
+        if start_idx < 0:
             try:
                 start_idx = np.random.choice(range(vlen - int(num_seq * seq_len * downsample)), n)
             except:
                 print("Error!", vpath, vlen, num_seq, seq_len, downsample, n)
 
-        seq_idx = np.expand_dims(np.arange(num_seq), -1) * downsample * seq_len + start_idx
+        seq_idx = np.expand_dims(np.arange(num_seq), -1) * downsample * seq_len + start_idx + idx_offset
         seq_idx_block = seq_idx + np.expand_dims(np.arange(seq_len), 0) * downsample
         seq_idx_block = seq_idx_block.astype(int)
 
@@ -710,6 +730,8 @@ class Panasonic_3d(BaseDataloader):
         vals_to_return=["imgs"],
         sampling_method="dynamic",
         debug=False,
+        dataset="panasonic",
+        postfix=''
     ):
         super(Panasonic_3d, self).__init__(
             mode,
@@ -720,19 +742,23 @@ class Panasonic_3d(BaseDataloader):
             which_split,
             vals_to_return,
             sampling_method,
-            dataset="panasonic",
-            debug=debug
+            dataset=dataset,
+            debug=debug,
+            postfix=postfix
         )
 
 
     def __getitem__(self, index):
         row = np.array(self.video_info.iloc[index]).tolist()
-        num_views = int(len([i for i in row if i == i]) / 3)
+        num_views = int(len([i for i in row if i == i]) / 4)
         # FIXME: randomly sample indices
-        i1 = np.random.randint(1, num_views)
-        vpath0, vlen0, vname, vpath1, vlen1, _ = row[:3] + row[3*i1 : 3*i1+3]
+        i0 = [i for i in range(num_views) if 'v000' in row[i * 4]][0]
+        i1 = np.random.choice(np.setdiff1d(range(num_views), [i0]))
+        vpath0, vstart0, vend0, vname, vpath1, vstart1, vend1, _ = row[4*i0 : 4*i0+4] + row[4*i1 : 4*i1+4]
         # FIXME: make sure the first frame is synchronized
-        vlen = int(min(vlen0, vlen1))
+        vstart = max(vstart0, vstart1)
+        vend = min(vend0, vend1)
+        vlen = int(vend - vstart + 1)
 
         # Remove trailing backslash if any
         vpath0 = vpath0.rstrip('/')
@@ -742,8 +768,8 @@ class Panasonic_3d(BaseDataloader):
         if "tgt" in self.vals_to_return:
             seq_len = 2 * self.seq_len
 
-        items0, start_idx = self.idx_sampler(seq_len, self.num_seq, vlen, vpath0)
-        items1, _ = self.idx_sampler(seq_len, self.num_seq, vlen, vpath1, start_idx)
+        items0, start_idx = self.idx_sampler(seq_len, self.num_seq, vlen, vpath0, idx_offset=vstart)
+        items1, _ = self.idx_sampler(seq_len, self.num_seq, vlen, vpath1, idx_offset=vstart, start_idx=start_idx)
         if items0 is None or items1 is None:
             print(vpath)
 

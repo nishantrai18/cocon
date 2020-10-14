@@ -2,6 +2,7 @@ import os
 import csv
 import glob
 import sys
+import json
 
 import pandas as pd
 
@@ -148,28 +149,48 @@ def main_Kinetics400(mode, k400_path, f_root, csv_root='../data/kinetics400'):
     print("Total files missed:", missedCnt)
 
 
-def check_exists_panasonic(row, root, pra_to_prva):
-    global missedCnt
+def check_exists_panasonic(row, root, pra_to_prva, atomic_actions_by_pra_dict=None):
+    # global missedCnt
 
     pra, cat = row
     p, r, a = pra.split('_')
-    prvas = pra_to_prva[pra]
+    prvas = [prva for prva in pra_to_prva[pra] if os.path.exists(os.path.join(root, p, prva))]
     
     result = []
-    for prva in prvas:
-        _, _, v, _ = prva.split('_')
-        full_dirname = os.path.join(root, p, prva)
-        if os.path.exists(full_dirname):
-            n_frames = len(glob.glob(os.path.join(full_dirname, '*.jpg')))
-            result += [full_dirname, n_frames, cat]
 
-    if len(result) == 0:
-        missedCnt += 1
-        return None
+    if atomic_actions_by_pra_dict is not None:
+        # atomic
+        for atomic_action in atomic_actions_by_pra_dict[pra]:
+            result_row = []
+            for prva in prvas:
+                v = prva.split('_')[2]
+                full_dirname = os.path.join(root, p, prva)
+                # FIXME: add action length
+                s, e, c, _ = atomic_action
+                # FIXME: ignore actions whose end index is greater than video length. Check consistency!
+                if e > len(os.listdir(full_dirname)):
+                    continue
+                c = '_'.join(c.split(' '))
+                result_row += [full_dirname, s, e, c]
+            result.append(result_row)
+    else:
+        # video-level, a single row
+        for prva in prvas:
+            v = prva.split('_')[2]
+            full_dirname = os.path.join(root, p, prva)
+            if os.path.exists(full_dirname):
+                n_frames = len(glob.glob(os.path.join(full_dirname, '*.jpg')))
+                # dir name, start frame, end frame, category
+                result += [full_dirname, 0, n_frames - 1, cat]
+        result = [result]
+
+    # if len(result) == 0:
+    #     missedCnt += 1
+    #     return None
     return result
 
 
-def get_split_panasonic(root, split_path, mode):
+def get_split_panasonic(root, split_path, mode, atomic_actions_by_pra_dict=None):
     print('processing %s split ...' % mode)
     print('checking %s' % root)
     split_list = []
@@ -180,33 +201,53 @@ def get_split_panasonic(root, split_path, mode):
             p, r, v, a = prva.split('_')
             pra = '_'.join((p, r, a))
             pra_to_prva[pra].append(prva)
-        
+    
     split_list = Parallel(n_jobs=64)\
-                 (delayed(check_exists_panasonic)(row, root, pra_to_prva) \
+                 (delayed(check_exists_panasonic)(row, root, pra_to_prva, atomic_actions_by_pra_dict) \
                  for i, row in tqdm(split_content.iterrows(), total=len(split_content)))
+    split_list = [j for i in split_list for j in i]
     return split_list
 
 
-def main_panasonic(f_root, in_root, out_root='../../data/panasonic/'):
+def _panasonic_get_atomic_actions(annotation_root):
+    print('reading atomic action data...')
+    atomic_actions_by_pra_dict = defaultdict(list)
+    for p in tqdm(os.listdir(annotation_root)):
+        for j in os.listdir(os.path.join(annotation_root, p)):
+            r, a = j.split('_')[1:3]
+            pra = '_'.join((p, r, a))
+            with open(os.path.join(annotation_root, p, j)) as f:
+                atomic_action_list = json.load(f)
+            for d in atomic_action_list:
+                atomic_actions_by_pra_dict[pra].append([d['frame_start'], d['frame_end'], d['class'], d['action_length']])
+    return atomic_actions_by_pra_dict
+
+
+def main_panasonic(f_root, in_root, out_root='../../data/panasonic/', atomic=False):
     '''generate training/testing split, count number of available frames, save in csv'''
 
     train_split_path = os.path.join(in_root, 'list_with_activity_labels/train_list.csv')
     val_split_path = os.path.join(in_root, 'list_with_activity_labels/val_list.csv')
     test_split_path = os.path.join(in_root, 'list_with_activity_labels/test_list.csv')
 
+    atomic_actions_by_pra_dict = None
+
+    if atomic:
+        atomic_actions_by_pra_dict = _panasonic_get_atomic_actions(os.path.join(in_root, 'annotation_files/atomic_actions'))
+
     if not os.path.exists(out_root):
         os.makedirs(out_root)
 
-    train_split = get_split_panasonic(f_root, train_split_path, 'train')
-    write_list(train_split, os.path.join(out_root, 'train_split.csv'))
+    train_split = get_split_panasonic(f_root, train_split_path, 'train', atomic_actions_by_pra_dict)
+    write_list(train_split, os.path.join(out_root, 'train_split{}.csv'.format('_atomic' if atomic else '')))
 
-    val_split = get_split_panasonic(f_root, val_split_path, 'val')
-    write_list(val_split, os.path.join(out_root, 'val_split.csv'))
+    val_split = get_split_panasonic(f_root, val_split_path, 'val', atomic_actions_by_pra_dict)
+    write_list(val_split, os.path.join(out_root, 'val_split{}.csv'.format('_atomic' if atomic else '')))
 
-    test_split = get_split_panasonic(f_root, test_split_path, 'test')
-    write_list(test_split, os.path.join(out_root, 'test_split.csv'))
+    test_split = get_split_panasonic(f_root, test_split_path, 'test', atomic_actions_by_pra_dict)
+    write_list(test_split, os.path.join(out_root, 'test_split{}.csv'.format('_atomic' if atomic else '')))
 
-
+    
 import argparse
 
 if __name__ == '__main__':
@@ -219,6 +260,7 @@ if __name__ == '__main__':
     parser.add_argument('--hmdb51', action='store_true')
     parser.add_argument('--kinetics', action='store_true')
     parser.add_argument('--panasonic', action='store_true')
+    parser.add_argument('--panasonic-atomic', action='store_true')
     parser.add_argument('--dataset_path', default='/scr/data', type=str)
     args = parser.parse_args()
 
@@ -257,3 +299,6 @@ if __name__ == '__main__':
 
     if args.panasonic:
         main_panasonic(os.path.join(dataset_path, 'panasonic/frame'), os.path.join(dataset_path, 'panasonic'), out_root=args.dataset_path)
+
+    if args.panasonic_atomic:
+        main_panasonic(os.path.join(dataset_path, 'panasonic/frame'), os.path.join(dataset_path, 'panasonic'), out_root=args.dataset_path, atomic=True)

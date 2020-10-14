@@ -125,6 +125,9 @@ def get_multi_modal_model_train_args():
     # Extra arguments
     parser.add_argument('--debug', default=False, type=str2bool, help='Reduces latency for data ops')
 
+    # wandb
+    parser.add_argument('--wandb-project-name', default="", type=str, help='wandb project name')
+
     return parser
 
 
@@ -139,6 +142,8 @@ def get_num_classes(dataset):
         return 51
     elif dataset == 'panasonic':
         return 75
+    elif dataset == 'panasonic-atomic':
+        return 448
     else:
         return None
 
@@ -261,7 +266,7 @@ def get_imgs_transforms(args):
             ToTensor(),
             Normalize()
         ])
-    elif args_dict["dataset"] == 'panasonic':
+    elif 'panasonic' in args_dict["dataset"]:
         transform = transforms.Compose([
             RandomHorizontalFlip(consistent=True),
             PadToSize(size=(256, 256)),
@@ -389,7 +394,7 @@ def get_dataset_loaders(args, transform, mode='train'):
                            downsample=args_dict["ds"],
                            vals_to_return=args_dict["data_sources"].split('_'),
                            sampling_method=args_dict["sampling"])
-    elif args_dict["dataset"] == 'panasonic':
+    elif args_dict["dataset"].startswith('panasonic'):
         dataset = Panasonic_3d(
                     mode=mode,
                     transform=transform,
@@ -397,7 +402,9 @@ def get_dataset_loaders(args, transform, mode='train'):
                     num_seq=args_dict["num_seq"],
                     downsample=args_dict["ds"],
                     vals_to_return=args_dict["data_sources"].split('_'),
-                    debug=args_dict["debug"])
+                    debug=args_dict["debug"],
+                    dataset=args_dict["dataset"].split('-')[0],
+                    postfix='atomic' if args_dict["dataset"].endswith('atomic') else '')
     else:
         raise ValueError('dataset not supported')
 

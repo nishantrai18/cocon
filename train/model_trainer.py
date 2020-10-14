@@ -13,6 +13,7 @@ import model_utils as mu
 import model_3d as m3d
 import sim_utils as su
 import mask_utils as masku
+import wandb
 
 sys.path.append('../backbone')
 from model_3d import DpcRnn
@@ -301,6 +302,11 @@ class MultiModalModelTrainer(nn.Module):
         self.img_path = args["img_path"]
         self.model_path = args["model_path"]
         self.writer_train, self.writer_val = mu.get_writers(self.img_path)
+
+        # wandb
+        self.use_wandb = args["wandb_project_name"] != ""
+        if self.use_wandb:
+            wandb.init(project=args["wandb_project_name"])
 
         print("Model path is:", self.model_path, self.img_path)
 
@@ -661,6 +667,10 @@ class MultiModalModelTrainer(nn.Module):
 
         print("Overall train stats:")
         self.pretty_print_stats(tq_stats)
+        
+        # log to wandb
+        if self.use_wandb:
+            wandb.log({'train/' + k: v for k, v in tq_stats.items()}, step=epoch)
 
         if self.shouldFinetune:
             trainX = {k: torch.cat(v) for k, v in trainX.items()}
@@ -709,6 +719,10 @@ class MultiModalModelTrainer(nn.Module):
                 tq_stats = mu.get_stats_dict(losses_dict, stats)
                 tq.set_postfix(tq_stats)
 
+        # log to wandb
+        if self.use_wandb:
+            wandb.log({'val/' + k: v for k, v in tq_stats.items()}, step=epoch)
+
         print("Overall val stats:")
         self.pretty_print_stats(tq_stats)
 
@@ -732,8 +746,12 @@ class MultiModalModelTrainer(nn.Module):
                 if epoch % self.args["ft_freq"] == 0:
                     self.model_finetuner.evaluate_classification(trainD, valD)
                     if not self.args["debug"]:
-                        self.model_finetuner.evaluate_clustering(trainD, tag='train')
-                        # self.model_finetuner.evaluate_clustering(valD, tag='val')
+                        train_clustering_dict = self.model_finetuner.evaluate_clustering(trainD, tag='train')
+                        # val_clustering_dict = self.model_finetuner.evaluate_clustering(valD, tag='val')
+                        if self.use_wandb:
+                            for n, d in zip(['train'], [train_clustering_dict]): # , val_clustering_dict])
+                                for k0, d0 in d.items():
+                                    wandb.log({'cluster/{}_{}_{}'.format(n, k0, k1): v for k1, v in d0.items()}, step=epoch)
 
             # save curve
             self.log_metrics(train_losses, train_stats, self.writer_train, prefix='global')

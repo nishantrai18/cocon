@@ -32,19 +32,25 @@ class QuickSupervisedModelTrainer(object):
 
     def evaluate_clustering_based_on_ground_truth(self, preds, label, tag):
         tic = time.time()
+        return_dict = {}
         for mode in self.modes:
             ars = round(metrics.adjusted_rand_score(preds[mode], label), 3)
             v_measure = round(metrics.v_measure_score(preds[mode], label), 3)
             print("--- Mode: {} - Adj Rand. Score: {}, V-Measure: {}".format(mode, ars, v_measure))
+            return_dict[mode] = dict(ars=ars, v_measure=v_measure)
         print("Time taken to evaluate {} clustering:".format(tag), time.time() - tic)
+        return return_dict
 
     def evaluate_clustering_based_on_mutual_information(self, preds, tag):
         tic = time.time()
+        return_dict = {}
         for m0, m1 in self.mode_pairs:
             ami = round(metrics.adjusted_mutual_info_score(preds[m0], preds[m1], average_method='max'), 3)
             v_measure = round(metrics.v_measure_score(preds[m0], preds[m1]), 3)
             print("--- Modes: {}/{} - Adj MI: {}, V Measure: {}".format(m0, m1, ami, v_measure))
+            return_dict['{}_{}'.format(m0, m1)] = dict(ami=ami, v_measure=v_measure)
         print("Time taken to evaluate {} clustering MI:".format(tag), time.time() - tic)
+        return return_dict
 
     def evaluate_clustering(self, data, tag):
         '''
@@ -57,5 +63,8 @@ class QuickSupervisedModelTrainer(object):
         label = data["Y"].cpu().numpy()
 
         preds = self.fit_and_predict_clustering(data, tag)
-        self.evaluate_clustering_based_on_ground_truth(preds, label, tag)
-        self.evaluate_clustering_based_on_mutual_information(preds, tag)
+        return_dict = {}
+        return_dict['gt'] = self.evaluate_clustering_based_on_ground_truth(preds, label, tag)
+        return_dict['mi'] = self.evaluate_clustering_based_on_mutual_information(preds, tag)
+        
+        return return_dict

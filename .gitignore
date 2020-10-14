@@ -1,0 +1,4 @@
+data
+train/logs
+train/wandb
+*/__pycache__
