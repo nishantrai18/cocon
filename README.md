@@ -1,10 +1,17 @@
 ## CoCon: Coooperative Contrastive Learning for Video Representation Learning
 
-This repository contains the implementation of Cooperative Contrastive Learning (CoCon) for video representation
- learning. We utilize multiple views of videos in order to learn better representations capturing semantics suitable
-  for tasks related to video understanding.
+This repository contains the implementation of [CoCon - Cooperative Contrastive Learning for video representation
+ learning](https://arxiv.org/abs/2104.14764). We utilize multiple views of videos in order to learn better representations capturing semantics suitable for tasks related to video understanding. CoCon was presented at [BayLearn 2020](http://www.baylearn.org/overview) and will be part of [Holistic Video Understanding at CVPR '21](https://holistic-video-understanding.github.io/workshops/cvpr2021.html#awards).
 
 ![arch](assets/intuition.png)
+
+### Authors
+
+* [Nishant Rai - Stanford University](https://www.linkedin.com/in/nishantrai18/)
+* Ehsan Adeli - Stanford University
+* Kuan-Hui Lee - Toyota Research Institute
+* Adrien Gaidon - Toyota Research Institute
+* Juan Carlos Niebles - Stanford University
 
 ### Installation
 
