@@ -86,3 +86,8 @@ The pre-trained weights will be made available here.
 
 Portions of code have been borrowed from [DPC](https://github.com/TengdaHan/DPC). Feel free to refer to their great
  work as well if you're interested in the field.
+ 
+### Keywords
+* Multi-view Video Representation Learning
+* Video Contrastive Learning
+* Multi-view Self-supervised Learning
