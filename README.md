@@ -78,10 +78,6 @@ Testing scripts are present in `cd CoCon/test/`
 
 Scripts for qualitative evaluation will be added here.
 
-### CoCon-pretrained weights
-
-The pre-trained weights will be made available here.
-
 ### Acknowledgements
 
 Portions of code have been borrowed from [DPC](https://github.com/TengdaHan/DPC). Feel free to refer to their great
