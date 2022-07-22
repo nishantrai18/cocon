@@ -87,6 +87,21 @@ The pre-trained weights will be made available here.
 Portions of code have been borrowed from [DPC](https://github.com/TengdaHan/DPC). Feel free to refer to their great
  work as well if you're interested in the field.
  
+### Citing
+
+If our paper or the codebase was useful to you, please consider citing it using the below.
+
+```
+@InProceedings{Rai_2021_CVPR,
+    author    = {Rai, Nishant and Adeli, Ehsan and Lee, Kuan-Hui and Gaidon, Adrien and Niebles, Juan Carlos},
+    title     = {CoCon: Cooperative-Contrastive Learning},
+    booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Workshops},
+    month     = {June},
+    year      = {2021},
+    pages     = {3384-3393}
+}
+```
+ 
 ### Keywords
 * Multi-view Video Representation Learning
 * Video Contrastive Learning
